@@ -1,6 +1,7 @@
 /* oxlint-disable eslint(max-lines) -- 平台事件按窗口生命周期集中注册，拆散会打乱 dispose 顺序。 */
 import { useEffect, useRef } from "react";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { useTaskQueryCacheStore } from "@/store/taskQueryCacheStore.js";
 import type { IPlatformService } from "@zcode/shared";
 import { isWorkspaceTab, type TabStoreState, type WindowTabState } from "@/store/tabStore.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
@@ -9,6 +10,7 @@ import { toast } from "@/components/ui/toast.js";
 import { matchesPrimaryShortcut } from "@/lib/keyboardShortcuts.js";
 import { isShortcutRecordingActive } from "@/shortcuts/bindings.js";
 import { isRendererReloadNavigation } from "@/lib/rendererNavigation.js";
+import { resolveTaskNotificationNavigationTarget } from "@/lib/taskNotificationNavigationTarget.js";
 import { shouldPublishCompleteWorkspaceSnapshot } from "@/root/rootPlatformWorkspaceSync.js";
 
 export function useRootPlatformEffects({
@@ -156,27 +158,27 @@ export function useRootPlatformEffects({
       : () => {};
     const disposeNotificationClick = platform.onTaskNotificationClick((taskId: string) => {
       logger.info("[Root] onTaskNotificationClick:", taskId);
-      // 遍历所有 workspace 找到 taskId 所属的 workspace，然后激活对应 tab 并切换任务
-      const workspaces = useZCodeSessionStore.getState().workspaces;
-      for (const [workspacePath, workspaceState] of Object.entries(workspaces)) {
-        const taskMeta = workspaceState.taskListCache?.find((task) => task.taskId === taskId);
-        const hasTask = workspaceState.activeTaskId === taskId || Boolean(taskMeta);
-        if (hasTask) {
-          const targetWorkspacePath = taskMeta?.workspacePath ?? workspacePath;
-          const targetWorkspaceIdentity = taskMeta?.workspaceIdentity;
-          // 通知点击会从全局 workspace store 反查 task。
-          // 远端任务必须用 task meta 自带的 workspaceIdentity 激活和选中，否则会落到 path-only 桶。
-          activateTabByPath(
-            targetWorkspacePath,
-            targetWorkspaceIdentity ? { workspaceIdentity: targetWorkspaceIdentity } : undefined,
-          );
-          useZCodeSessionStore
-            .getState()
-            .setActiveTaskId(targetWorkspacePath, taskId, targetWorkspaceIdentity);
-          return;
-        }
+      // 任务列表迁到 task query cache 后，workspaceState.taskListCache 不再被填充，
+      // 反查必须走 task query cache（与按钮导航、前进后退、quickpick 同源），
+      // 否则非当前激活任务会一直落到下面的 not found 分支、点了通知界面不动。
+      const target = resolveTaskNotificationNavigationTarget({
+        taskId,
+        taskMetaByEntityKey: useTaskQueryCacheStore.getState().taskMetaByEntityKey,
+        workspaces: useZCodeSessionStore.getState().workspaces,
+      });
+      if (!target) {
+        logger.warn("[Root] onTaskNotificationClick: task not found in any workspace:", taskId);
+        return;
       }
-      logger.warn("[Root] onTaskNotificationClick: task not found in any workspace:", taskId);
+
+      // 远端任务必须用 task meta 自带的 workspaceIdentity 激活和选中，否则会落到 path-only 桶。
+      activateTabByPath(
+        target.workspacePath,
+        target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : undefined,
+      );
+      useZCodeSessionStore
+        .getState()
+        .setActiveTaskId(target.workspacePath, taskId, target.workspaceIdentity);
     });
     const disposeUpdateCheckResult = platform.onUpdateCheckResult
       ? platform.onUpdateCheckResult((payload) => {

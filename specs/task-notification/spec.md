@@ -36,6 +36,23 @@
 - 该动作只切换可见性，不接管焦点；焦点仍由调用方在最后统一 `focus()`。
 - 只在"点通知把窗口带回前台"这一条路径上使用。托盘恢复（`primaryWindowCoordinator.ts`）与深链回跳（`desktopWorkspaceDeepLink.ts`）的窗口状态组合不同，需要单独验证后再决定是否复用。
 
+### 四、点击通知的任务定位：走 task query cache，不再读旧 taskListCache
+
+点通知要把界面切到被点任务，第一步是把 taskId 反查成 workspace。任务列表迁到 task query cache 之后，`workspaceState.taskListCache` 已不再被填充——`setTaskListCache` 只在 `taskListMetaSync` 里两个"原本就非 null"的补丁分支被调用，没有任何从新缓存回填的路径——继续读它会让反查退化：
+
+- 只有"被点任务本来就是该 workspace 的 active 任务"（`activeTaskId === taskId`）才命中；
+- 其余情况恒落到 `logger.warn("task not found in any workspace")`，界面停在原会话，用户只能手动再点一次。
+
+本机 dev 实测（两次重复操作，结果一致）：点击后 renderer 同秒打 `task not found`，活跃会话保持不变；4–5 秒后手动切过去才出现该会话的 lease 与活跃会话发布。
+
+定位顺序（`resolveTaskNotificationNavigationTarget`）：
+
+1. **task query cache**（`useTaskQueryCacheStore.taskMetaByEntityKey`）：与按钮导航、前进/后退、quickpick 相同的来源。命中时用 meta 自带的 `workspacePath` + `workspaceIdentity`，远端任务才不会落到 path-only 桶。
+2. **乐观池与当前激活任务**（`workspaceState.optimisticTaskListByTaskId` / `workspaceState.activeTaskId`）：覆盖草稿提升或刚创建、尚未进入 query cache 的任务，保留改动前对"任务已是某 workspace active 任务"的判定。
+3. 都找不到：维持现状并 `logger.warn`。与既有失败语义一致——不猜测、不回退到"最近活跃会话"。
+
+`taskListCache` 不再作为数据源保留：它只会被过滤或改写，任何写进它的 meta 都会先写进 query cache，读它等于同时维护两条事实源。
+
 ## 否决的替代方案
 
 - **只补 `webContents.invalidate()`**：冻结点是"页面被判定不可见"，请求一帧不恢复 rAF/定时器。真实复现里激活瞬间本来就出了 2 帧，随后照样冻结 7 秒。
