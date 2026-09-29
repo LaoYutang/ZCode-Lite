@@ -107,6 +107,11 @@ import {
 import type { ConversationStatusPanelWorkflowRunTarget } from "@/v4/conversationStatusPanelModel.js";
 import { workflowRunOpenTarget } from "@/v4/conversationStatusPanelModel.js";
 import {
+  resolveConversationStatusPanelCollapsedVisibility,
+  resolveConversationStatusSummaryMetric,
+  type ConversationStatusSummaryMetric,
+} from "@/v4/conversationStatusSummaryMetric.js";
+import {
   buildConversationGoalIterationSummaries,
   getConversationGoalElapsedSeconds,
 } from "@/v4/conversationGoalSummaryModel.js";
@@ -1648,166 +1653,131 @@ function StatusSummaryMetric({ children, icon }: { children: ReactNode; icon: Re
   );
 }
 
-function getCurrentPlanItem(plan: ConversationStatusPanelModel["plan"]) {
-  return (
-    plan?.items.find((item) => item.status === "inProgress") ??
-    plan?.items.find((item) => item.status === "pending") ??
-    null
-  );
-}
-
-function getCompletedPlanItem(plan: ConversationStatusPanelModel["plan"]) {
-  return [...(plan?.items ?? [])].reverse().find((item) => item.status === "completed") ?? null;
+function StatusSummaryMetricContent({ metric }: { metric: ConversationStatusSummaryMetric }) {
+  const { intl, locale } = useZCodeIntl();
+  switch (metric.kind) {
+    case "currentPlanItem":
+      return (
+        <StatusSummaryMetric
+          icon={<ArrowRightIcon className="size-4 text-[var(--color-foreground)]" />}
+        >
+          <span className="min-w-0 truncate">{metric.content}</span>
+        </StatusSummaryMetric>
+      );
+    case "activeGoal":
+    case "doneGoal":
+      return (
+        <StatusSummaryMetric icon={<GoalIcon className="size-4 text-[var(--color-foreground)]" />}>
+          <span className="min-w-0 truncate">{metric.title}</span>
+        </StatusSummaryMetric>
+      );
+    case "gitChanges":
+      return (
+        <StatusSummaryMetric
+          icon={<FileDiffIcon className="size-4 text-[var(--color-foreground)]" />}
+        >
+          <span className="min-w-0 truncate">
+            {intl.formatMessage({ id: "chat.statusPanel.changes" })}
+          </span>
+          <span className="shrink-0 text-[var(--color-diff-added)]">+{metric.added}</span>
+          <span className="shrink-0 text-[var(--color-diff-removed)]">-{metric.removed}</span>
+        </StatusSummaryMetric>
+      );
+    case "completedPlanItem":
+      return (
+        <StatusSummaryMetric
+          icon={<CheckCircle2Icon className="size-4 text-[var(--color-success)]" />}
+        >
+          <span className="min-w-0 truncate">{metric.content}</span>
+        </StatusSummaryMetric>
+      );
+    case "planProgress":
+      return (
+        <StatusSummaryMetric
+          icon={<ListChecksIcon className="size-4 text-[var(--color-foreground-subtle)]" />}
+        >
+          <span className="min-w-0 truncate">
+            {intl.formatMessage({ id: "chat.statusPanel.todo" })}
+          </span>
+          <span className="shrink-0 text-[var(--color-foreground-subtle)]">
+            {metric.completedCount}/{metric.totalCount}
+          </span>
+        </StatusSummaryMetric>
+      );
+    case "sessionPlan":
+      return (
+        <StatusSummaryMetric
+          icon={<ListChecksIcon className="size-4 text-[var(--color-foreground)]" />}
+        >
+          <span className="min-w-0 truncate">
+            {metric.title ?? intl.formatMessage({ id: "chat.statusPanel.planFallback" })}
+          </span>
+        </StatusSummaryMetric>
+      );
+    case "running": {
+      const RunningSummaryIcon =
+        metric.icon === "mixed"
+          ? ActivityIcon
+          : metric.icon === "workflow"
+            ? Workflow
+            : metric.icon === "terminal"
+              ? SquareTerminalIcon
+              : BotIcon;
+      return (
+        <StatusSummaryMetric
+          icon={<RunningSummaryIcon className="size-4 text-[var(--color-foreground)]" />}
+        >
+          {/* 产品规则：实时活动只能在没有 Goal/Todo/Git 等主状态时兜底，
+              避免胶囊把主状态和输入框已展示的实时计数重复拼接。 */}
+          <span className="shrink-0">
+            {metric.hasRunningSubagent
+              ? formatRunningSubagentCount(intl.formatMessage, metric.count)
+              : formatRunningCount(intl.formatMessage, metric.count)}
+          </span>
+        </StatusSummaryMetric>
+      );
+    }
+    case "endedWorkflows":
+      return (
+        <StatusSummaryMetric
+          icon={<Workflow className="size-4 text-[var(--color-foreground-subtle)]" />}
+        >
+          <span className="min-w-0 truncate">
+            {intl.formatMessage({ id: "chat.statusPanel.endedWorkflows" })}
+          </span>
+          <span className="shrink-0 text-[var(--color-foreground-subtle)]">{metric.count}</span>
+        </StatusSummaryMetric>
+      );
+    case "usage":
+      return (
+        <StatusSummaryMetric
+          icon={<GaugeIcon className="size-4 text-[var(--color-foreground-subtle)]" />}
+        >
+          <span className="min-w-0 truncate">
+            {intl.formatMessage({ id: "chat.statusPanel.usage" })}
+          </span>
+          <span className="shrink-0 font-mono tabular-nums text-[var(--color-foreground-subtle)]">
+            {formatCompactTokenUsage(locale, metric.totalTokens)}
+          </span>
+        </StatusSummaryMetric>
+      );
+  }
 }
 
 function StatusSummaryRow({
-  endedWorkflowRunCount,
-  gitWorktreeChangeSummary,
-  model,
+  metric,
   onVariantChange,
-  usageTotalTokens = null,
 }: {
-  /** 已结束 run 的目录计数；宿主给 0 表示目录入口不可渲染（缺会话或缺回调）。 */
-  endedWorkflowRunCount: number;
-  gitWorktreeChangeSummary?: { added: number; removed: number } | null;
-  model: ConversationStatusPanelModel;
+  metric: ConversationStatusSummaryMetric | null;
   onVariantChange?: (variant: ChatViewSummaryPanelVariant | null) => void;
-  /** 本会话计费口径合计；null 表示没有（或查不到），此时不占用胶囊。 */
-  usageTotalTokens?: number | null;
 }) {
-  const { intl, locale } = useZCodeIntl();
+  const { intl } = useZCodeIntl();
   const expandLabel = intl.formatMessage({ id: "chat.summaryPanel.showPanel" });
-  const currentPlanItem = getCurrentPlanItem(model.plan);
-  const completedPlanItem = getCompletedPlanItem(model.plan);
-  const latestSessionPlan = model.sessionPlans?.items[0] ?? null;
-  const goal = model.goal;
-  const goalTitle = goal ? goal.summaryTitle?.trim() || goal.objective.trim() || null : null;
-  const goalStatus = goal?.status ?? null;
-  // V4 goal 在 verifier 判定未完成后会进入 notSatisfied；mini 过去漏掉
-  // 这个合法开放态并返回 null，导致只剩 2px 空 shell，也失去重新展开入口。
-  const isActiveGoal =
-    goalStatus === "active" ||
-    goalStatus === "notSatisfied" ||
-    goalStatus === "paused" ||
-    goalStatus === "verifying";
-  const isDoneGoal = goalStatus === "verified";
-  const added = gitWorktreeChangeSummary?.added ?? 0;
-  const removed = gitWorktreeChangeSummary?.removed ?? 0;
-  const hasGitMiniSummary = Boolean(model.git && added + removed > 0);
-
-  // 胶囊摘要过去把所有后台任务都写死成 Activity，纯 Subagent 因而没有复用
-  // Running 明细的 Bot 语义。规则现在是三类的：**恰好一类**沿用该类图标，混合才是 Activity
-  // （两类矩阵在 workflow 加入后就不够用了，硬写下去会漏掉 workflow+agent 这种组合）。
-  const hasRunningBash = model.runningBashWorks.length > 0;
-  const hasRunningSubagent = model.runningSubagentWorks.length > 0;
-  const hasRunningWorkflow = model.runningWorkflowRuns.length > 0;
-  const runningCount =
-    model.runningBashWorks.length +
-    model.runningSubagentWorks.length +
-    model.runningWorkflowRuns.length;
-  const runningKindCount = [hasRunningWorkflow, hasRunningBash, hasRunningSubagent].filter(
-    Boolean,
-  ).length;
-  const RunningSummaryIcon =
-    runningKindCount > 1
-      ? ActivityIcon
-      : hasRunningWorkflow
-        ? Workflow
-        : hasRunningBash
-          ? SquareTerminalIcon
-          : BotIcon;
-  const summaryMetric = currentPlanItem ? (
-    <StatusSummaryMetric
-      icon={<ArrowRightIcon className="size-4 text-[var(--color-foreground)]" />}
-    >
-      <span className="min-w-0 truncate">{currentPlanItem.content}</span>
-    </StatusSummaryMetric>
-  ) : goalTitle && isActiveGoal ? (
-    <StatusSummaryMetric icon={<GoalIcon className="size-4 text-[var(--color-foreground)]" />}>
-      <span className="min-w-0 truncate">{goalTitle}</span>
-    </StatusSummaryMetric>
-  ) : hasGitMiniSummary ? (
-    <StatusSummaryMetric icon={<FileDiffIcon className="size-4 text-[var(--color-foreground)]" />}>
-      <span className="min-w-0 truncate">
-        {intl.formatMessage({ id: "chat.statusPanel.changes" })}
-      </span>
-      <span className="shrink-0 text-[var(--color-diff-added)]">+{added}</span>
-      <span className="shrink-0 text-[var(--color-diff-removed)]">-{removed}</span>
-    </StatusSummaryMetric>
-  ) : goalTitle && isDoneGoal ? (
-    <StatusSummaryMetric icon={<GoalIcon className="size-4 text-[var(--color-foreground)]" />}>
-      <span className="min-w-0 truncate">{goalTitle}</span>
-    </StatusSummaryMetric>
-  ) : completedPlanItem ? (
-    <StatusSummaryMetric icon={<CheckCircle2Icon className="size-4 text-[var(--color-success)]" />}>
-      <span className="min-w-0 truncate">{completedPlanItem.content}</span>
-    </StatusSummaryMetric>
-  ) : model.plan ? (
-    <StatusSummaryMetric
-      icon={<ListChecksIcon className="size-4 text-[var(--color-foreground-subtle)]" />}
-    >
-      <span className="min-w-0 truncate">
-        {intl.formatMessage({ id: "chat.statusPanel.todo" })}
-      </span>
-      <span className="shrink-0 text-[var(--color-foreground-subtle)]">
-        {model.plan.completedCount}/{model.plan.totalCount}
-      </span>
-    </StatusSummaryMetric>
-  ) : latestSessionPlan ? (
-    <StatusSummaryMetric
-      icon={<ListChecksIcon className="size-4 text-[var(--color-foreground)]" />}
-    >
-      <span className="min-w-0 truncate">
-        {latestSessionPlan.title ?? intl.formatMessage({ id: "chat.statusPanel.planFallback" })}
-      </span>
-    </StatusSummaryMetric>
-  ) : runningCount > 0 ? (
-    <StatusSummaryMetric
-      icon={<RunningSummaryIcon className="size-4 text-[var(--color-foreground)]" />}
-    >
-      {/* 产品规则：实时活动只能在没有 Goal/Todo/Git 等主状态时兜底，
-          避免胶囊把主状态和输入框已展示的实时计数重复拼接。 */}
-      <span className="shrink-0">
-        {hasRunningSubagent
-          ? formatRunningSubagentCount(intl.formatMessage, runningCount)
-          : formatRunningCount(intl.formatMessage, runningCount)}
-      </span>
-    </StatusSummaryMetric>
-  ) : endedWorkflowRunCount > 0 ? (
-    // 胶囊的兜底链止步于「活动计数」，而面板级的卸载闸门（!hasContent &&
-    // !canRenderEndedWorkflows）为了保住 run 目录入口，会在**只剩已结束 run**时仍保留
-    // 整个壳——工作区无 Git 变更时 workflow 一结束，胶囊各分支全 null，只剩一条 2px
-    // 空壳线（与 goal notSatisfied 那次是同一个失效形状）。这里补上最低优先级的终态
-    // 分支：图标沿用 Workflow 域，文案与 Workflows 分区页脚同 key，点开即展开面板。
-    <StatusSummaryMetric
-      icon={<Workflow className="size-4 text-[var(--color-foreground-subtle)]" />}
-    >
-      <span className="min-w-0 truncate">
-        {intl.formatMessage({ id: "chat.statusPanel.endedWorkflows" })}
-      </span>
-      <span className="shrink-0 text-[var(--color-foreground-subtle)]">
-        {endedWorkflowRunCount}
-      </span>
-    </StatusSummaryMetric>
-  ) : usageTotalTokens === null ? null : (
-    // 兜底链最后一档：用量是"有数据就希望看得见"的常驻信息，但它必须让位给
-    // Goal/Todo/Git/活动计数这些主状态，所以排在终态 run 之后。
-    <StatusSummaryMetric
-      icon={<GaugeIcon className="size-4 text-[var(--color-foreground-subtle)]" />}
-    >
-      <span className="min-w-0 truncate">
-        {intl.formatMessage({ id: "chat.statusPanel.usage" })}
-      </span>
-      <span className="shrink-0 font-mono tabular-nums text-[var(--color-foreground-subtle)]">
-        {formatCompactTokenUsage(locale, usageTotalTokens)}
-      </span>
-    </StatusSummaryMetric>
-  );
-
-  if (!summaryMetric) {
+  // 指标由 resolveConversationStatusSummaryMetric 统一裁决，外壳闸门问同一份结论；
+  // 这里的兜底只防两处判定漂移时渲染出一个无内容的按钮。
+  if (!metric) {
     return null;
   }
-
   return (
     <ControlHintTooltip title={expandLabel} sideOffset={4} side="left">
       <button
@@ -1816,7 +1786,7 @@ function StatusSummaryRow({
         className="group inline-flex w-max max-w-80 cursor-pointer flex-col items-stretch text-left text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-menu-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]"
         onClick={() => onVariantChange?.("panel")}
       >
-        {summaryMetric}
+        <StatusSummaryMetricContent metric={metric} />
       </button>
     </ControlHintTooltip>
   );
@@ -1998,6 +1968,23 @@ function ConversationStatusPanelImpl({
     return null;
   }
 
+  // 收起形态（mini / auto 的窄容器区间）唯一的可见内容就是胶囊：指标为空时外壳只剩
+  // 上下两条边框，表现为会话右上角一条 2px 横线（只有用量信号的新会话冷启动即命中）。
+  // 闸门与胶囊渲染共用这一份裁决，不允许两处各自判断内容优先级。
+  const statusSummaryMetric = resolveConversationStatusSummaryMetric({
+    model,
+    endedWorkflowRunCount: canRenderEndedWorkflows ? endedWorkflowRunCount : 0,
+    usageTotalTokens,
+  });
+  const collapsedVisibility = resolveConversationStatusPanelCollapsedVisibility({
+    variant,
+    hasSummaryMetric: Boolean(statusSummaryMetric),
+  });
+  if (collapsedVisibility === "hidden") {
+    // mini 形态下卡片区本就不渲染（body 整段在 variant !== "mini" 内），外壳里只剩胶囊。
+    return null;
+  }
+
   return (
     <div
       className={cn(
@@ -2007,7 +1994,14 @@ function ConversationStatusPanelImpl({
         layoutMode === "inline"
           ? "right-4"
           : layoutMode === "auto"
-            ? "inset-x-0 flex justify-end px-4 @min-[1280px]/conversation:left-auto @min-[1280px]/conversation:right-4 @min-[1280px]/conversation:px-0"
+            ? cn(
+                "inset-x-0 justify-end px-4 @min-[1280px]/conversation:left-auto @min-[1280px]/conversation:right-4 @min-[1280px]/conversation:px-0",
+                // auto 的窄容器只显示胶囊，宽容器显示卡片区（用量等分区）。没有指标时
+                // 窄容器这一段没有可见内容，按同一条 1280px 断点隐藏外壳；宽容器照常渲染。
+                collapsedVisibility === "collapsed-only"
+                  ? "hidden @min-[1280px]/conversation:flex"
+                  : "flex",
+              )
             : "inset-x-0 flex justify-end px-4",
         className,
       )}
@@ -2222,15 +2216,7 @@ function ConversationStatusPanelImpl({
                 : "pointer-events-auto relative visible opacity-100 @min-[1280px]/conversation:hidden",
           )}
         >
-          <StatusSummaryRow
-            model={model}
-            // 与页脚同一道门（canRenderEndedWorkflows）：缺会话或缺回调时目录打不开，
-            // 胶囊也就不该报一个点了没反应的数。
-            endedWorkflowRunCount={canRenderEndedWorkflows ? endedWorkflowRunCount : 0}
-            gitWorktreeChangeSummary={gitWorktreeChangeSummary}
-            usageTotalTokens={usageTotalTokens}
-            onVariantChange={onVariantChange}
-          />
+          <StatusSummaryRow metric={statusSummaryMetric} onVariantChange={onVariantChange} />
         </div>
       </aside>
     </div>

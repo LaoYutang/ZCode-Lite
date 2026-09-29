@@ -105,17 +105,30 @@
 - **保留区间概览**：`all` 快照的累计 Token、峰值 Token、活跃天数、会话数四项继续显示（原为五项，去掉上面三个）。
 - **服务端字段不删**：`longestSessionMs` / `currentStreakDays` / `longestStreakDays` 仍留在 `appUsageSummarySchema` 里。删服务端字段会让**旧渲染端**在解析新 CLI 的响应时因缺字段失败（要求字段的 schema 遇到缺字段是硬错误），这是没有收益的协议破坏。它们只是不再有渲染消费者。
 
+### 九、收起形态不得渲染空壳（会话右上角 2px 横线）
+
+**现象与根因**（截图逐像素取证）：辅助对话这类**只有用量信号**的会话冷启动后，会话右上角会出现一条 2px 横线。它是收起态面板外壳本身：外壳渲染闸门 `hasContent` 把 `usageContextWindow`（冷恢复由 seed 回填）也算作内容，而收起形态唯一的可见内容是胶囊，胶囊优先级链的末档要求 `usageTotalTokens !== null`（即计费请求数 > 0，新建辅助对话为 0）。窄容器（`< 1280px`）下卡片区整段是 `hidden`，外壳于是只剩上下两条 1px 边框——宽度 320px（`miniWidth` 缺省 320，空胶囊量出 0 宽度不会覆盖它）、钉在 `top-0 right-4 pt-4`，正好落在会话右上角。
+
+**规则**：
+
+1. **胶囊指标是收起形态的唯一内容来源。** 新增纯函数 `resolveConversationStatusSummaryMetric({ model, endedWorkflowRunCount, usageTotalTokens })`（`v4/conversationStatusSummaryMetric.ts`）作为唯一裁决，返回指标描述符或 `null`。渲染层按描述符出文案与图标，外壳闸门只问 `=== null`；两处**不得**各自判断内容优先级。
+2. **指标为 `null` 时收起形态不渲染**：`mini` 形态整个面板渲染 `null`（该形态下卡片区本就不渲染，外壳里只剩胶囊）；`auto` 形态在容器 `< 1280px` 的区间 `hidden`，`@min-[1280px]/conversation:flex` 照常渲染（宽容器下卡片区有用量分区，面板有内容）。
+3. **不新增第二条宽度裁决**：窄/宽仍由既有 container query 断点（1280px）判定，React 不把容器宽度翻译成状态（沿用 `resolveConversationStatusPanelVariant` 的既有决定）。
+4. **不改变既有优先级次序**：描述符与既有胶囊链逐档同序（当前计划项 → 活跃 goal → Git 变更 → 已完成 goal → 已完成计划项 → 计划进度 → 会话计划 → 运行中计数 → 已结束 run → 用量兜底）。本次是唯一的例外：`git` 档由 `gitWorktreeChangeSummary` 换成同源的 `model.git.added/removed`——`model.git` 只在 `added + removed > 0` 时非空，两者等价，去掉一条重复入参。
+5. **失败语义（如实记录）**：`auto` 且容器 `< 1280px` 的会话在只有用量信号时**没有面板入口**。这不是移除可用入口：卡片区在这一宽度下本来就是 `hidden`，而此前那条 2px 外壳也没有 onClick（胶囊按钮在无指标时不渲染），点击它不会展开任何东西。指标一出现（计划、目标、Git 变更、运行中计数、已结束 run 或计费用量）胶囊自动回来。
+
 ## 唯一所有者
 
-| 事实             | 所有者                                                                     | 说明                                                                |
-| ---------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| 会话用量事实     | CLI session store（`model_usage` / `turn_usage` / `tool_usage`）           | host 侧无副本；一切聚合从 CLI 侧查询产生                            |
-| 会话用量聚合     | `usage-session-query.ts` 的 `querySessionUsageDetail`（`usage.ts` 再导出） | 新增；唯一的会话级聚合实现                                          |
-| 该查询的对外契约 | `v4/conversation/usageDetail`                                              | 新增 method，结果 schema 是唯一形状定义                             |
-| 面板展示值       | `ConversationStatusPanel`                                                  | **纯只读投影**：无草稿、无乐观层、不进 CommandInbox、不新增写入路径 |
-| 实时容量         | v4 会话投影                                                                | 面板不自己算、不另存副本；只当显示闸门的信号，不再渲染              |
-| 全局用量聚合     | `usage-app-query.ts` 的 `queryAppUsage`（`usage.ts` 再导出）               | 设置 → 用量的唯一来源；今日分块也只由它产出                         |
-| 全局用量对外契约 | `v4/usage/stats` 的 `appUsageSnapshotSchema`                               | 唯一形状定义；`today` 是新增的**可选**分块                          |
+| 事实             | 所有者                                                                              | 说明                                                                |
+| ---------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 会话用量事实     | CLI session store（`model_usage` / `turn_usage` / `tool_usage`）                    | host 侧无副本；一切聚合从 CLI 侧查询产生                            |
+| 收起态胶囊指标   | `resolveConversationStatusSummaryMetric`（`v4/conversationStatusSummaryMetric.ts`） | 新增；**唯一**内容优先级裁决，渲染层与外壳闸门共用同一份结论        |
+| 会话用量聚合     | `usage-session-query.ts` 的 `querySessionUsageDetail`（`usage.ts` 再导出）          | 新增；唯一的会话级聚合实现                                          |
+| 该查询的对外契约 | `v4/conversation/usageDetail`                                                       | 新增 method，结果 schema 是唯一形状定义                             |
+| 面板展示值       | `ConversationStatusPanel`                                                           | **纯只读投影**：无草稿、无乐观层、不进 CommandInbox、不新增写入路径 |
+| 实时容量         | v4 会话投影                                                                         | 面板不自己算、不另存副本；只当显示闸门的信号，不再渲染              |
+| 全局用量聚合     | `usage-app-query.ts` 的 `queryAppUsage`（`usage.ts` 再导出）                        | 设置 → 用量的唯一来源；今日分块也只由它产出                         |
+| 全局用量对外契约 | `v4/usage/stats` 的 `appUsageSnapshotSchema`                                        | 唯一形状定义；`today` 是新增的**可选**分块                          |
 
 ## 迁移边界
 
@@ -126,6 +139,7 @@
 - 设置页今日分块：`days` 查询多带 6 列 `sum(...)` + `count(*)`；`AppUsageDayRow` 与 `appUsageSnapshotSchema` 各加字段（前者是内部端口类型，后者是**可选**的新增字段，两处都是向后兼容方向）。删除 `AppUsagePanel` 的 `formatAppUsageDuration` / `formatAppUsageDays` 与对应 i18n 键；`settings.usage.longestSession` / `currentStreak` / `longestStreak` 三个文案键一并删除。
 - **workspace 归属不在本 method 内校验**（如实记录边界，不是"已修复"）：v4 面的 params 一律不带 workspace 字段（`v4ConversationUsageParamsSchema` 只有 `sessionId`），CLI 侧没有可比对的调用方 workspace，因此这里只做"按请求的 sessionId 取数，取不到返回零值"，不做授权判断——不给单个方法加一份没有参照物的假校验。隔离由两处保证：调用方经 `getReadOnlyClient` 选 workspace/远端对应的 client；pane 只用自己的 `sessionId` 取数且绝不回退。若要真正做归属授权，应在 v4 面**统一**补 workspace 字段，那是独立的协议改动。
 - 已知残留：`getTaskTokenUsage`（`v4/conversation/usage`）同样不做归属校验，本次不改它以免影响既有语义。
+- 收起态空壳：只改渲染闸门与内容裁决的落点（新增 `v4/conversationStatusSummaryMetric.ts`，`ConversationStatusPanel` 的胶囊链搬进去并保持次序），不改协议、不改 `hasContent`、不改 `miniWidth` 补零守卫、不改卡片区分区内容。`hasContent` 仍把 `usageContextWindow` 当内容（宽容器下卡片区要因此可用），本次只保证"内容为空时外壳不出现"。
 
 ## 验收场景
 
@@ -145,6 +159,8 @@
 14. 设置 →「用量」今日分块与热力图**当日格子**一致：两者都取同一 `dayIndex`，不得出现两个不同的"今日"。
 15. 设置 →「用量」切到 7 日 / 30 日区间时，今日分块**不变**（它来自不随区间变化的当日口径）。
 16. 旧 CLI（响应里没有 `today`）：今日分块显示 `--`，不显示任何区间数字，不报错。
+17. **只有用量信号的会话（辅助对话刚启动）在窄容器（`< 1280px`）下不出现 2px 外壳横线**：会话右上角既没有横线，也没有 320px 的空白壳；宽容器（`≥ 1280px`）下卡片区照常渲染（用量分区可见）。
+18. **胶囊有指标时收起形态不受影响**：有当前计划项 / 目标 / Git 变更 / 运行中任务 / 已结束 run / 计费用量时，胶囊在两种宽度下都照常渲染并可点开卡片区。
 
 ## 测试
 
@@ -169,3 +185,10 @@
   - `resources/glm/zcode.cjs`（本次构建重新生成，非陈旧）中按日聚合 SQL 原文为 `…coalesce(sum(cache_creation_input_tokens), 0) as cacheCreationTokens, coalesce(sum(cache_read_input_tokens), 0) as cacheReadTokens, count(*) as modelRequestCount … group by dayIndex`，且存在 `cacheHitRate:<共享函数>({inputTokens:…})` 与返回对象里的 `today:<值>`；
   - `resources/app.asar` 中 `cacheHitRate:…modelRequestCount:…turnCount:…toolCallCount:` 的字段序列与 `today:<schema>.optional()` 均在；`今日用量` / `命中缓存` / `请求次数` / `累计概览` 等新文案在，`最长聊天时长` / `当前连续天数` / `最长连续天数` / `打开用量明细` / `sidePane.usage"` / `usage-side-pane` 全部不在，而保留项 `chat.statusPanel.usage` 与 `sidePane.usageSubagentTotal` 仍在。
 - **产物与源码的唯一差异**：打包完成后又改了三处**仅注释**的文档性描述（`usage.ts` / `server-operations.ts` / `zcodeAgent.ts` 里"与 app 级用量同源"这一错误说法，已改为如实描述两套窗口不同）。注释不进入 bundle，故安装包与当前源码在行为上一致；若要求注释与产物字面完全对应，重跑一次打包即可。
+- **已执行（§九 收起态空壳 · 单测）**：`packages/ui/test/conversationStatusSummaryMetric.test.mjs`，8 例覆盖胶囊指标裁决的全部落点（只有用量信号时裁决为空、用量兜底、六档优先级次序、goal 标题取不到时跳过、会话计划、运行中计数图标、终态 run、收起形态可见性），随 `pnpm --filter @zcode/ui test` 一起跑：33 例全通过。
+- **已执行（§九 收起态空壳 · 桌面开发态实机 A/B，逐项取证非目测）**：`ZCODE_DATA_BASE_DIR=<用户数据副本> pnpm dev:desktop:test` + playwright-core attach CDP（`127.0.0.1:9229`；本机 `http_proxy` 会拦住 localhost 的 DevTools 端点，必须 `NO_PROXY=127.0.0.1`）。打开真实会话后从侧栏 "+" 新建辅助对话（该会话 0 计费请求）：
+  - **复现（临时把可见性裁决恒置 `visible`，即修复前行为）**：辅助对话 pane 内 `[data-testid="chat-summary-panel"]` 的 rect 为 **x=1446 / y=69 / 320×2**，会话容器宽 678px——与截图测得的「320px 宽、2px 高、距右 16px、距顶 16px」逐项一致，确认那条横线就是这个空壳。
+  - **修复后（同一状态）**：该面板 wrapper 的 computed `display: none`（类名尾 `hidden @min-[1280px]/conversation:flex`）、rect 归零；**主对话 pane 不受影响**（容器 829px、胶囊有指标 → 仍为 `flex`，148×34 胶囊照常渲染）。
+  - **宽容器分支**：CDP `Emulation.setDeviceMetricsOverride` 把视口推到 3400px 后，辅助对话容器 1404px（≥1280）时该面板恢复 `flex` 并渲染出 320×52 的卡片（正文为「用量」分区）；清除 override 后回到 `none`。
+  - 验证跑在用户数据的**副本**上（`ZCODE_DATA_BASE_DIR` 指向副本；验证后副本、dev electron 进程与临时探针脚本一并删除，仓库内无残留），真实数据目录未写入。
+- **已执行的门禁（§九）**：`pnpm typecheck`（通过）、`pnpm lint`（0 error / 32 warning，全部存量，改动文件内新增 0 条；`ConversationStatusPanel` 的唯一 warning 是既有的未使用参数 `isMobileViewport`）、`pnpm architecture:check --changed`（0 违规）、改动与新增文件的 `oxfmt --check`（全绿）、`pnpm --filter @zcode/ui test`（33 例通过）。
