@@ -7,22 +7,23 @@
   <a href="README.md">简体中文</a> | English
 </p>
 
-> ### Fork notice
->
-> This repository is a fork of [zai-org/ZCode](https://github.com/zai-org/ZCode), renamed to **ZCode-Lite**. It keeps the ZCode coding workspace while dropping the dependency on Zhipu's (Z.ai / BigModel) account system, maintained as a lightweight, self-hostable branch.
->
-> Main differences from upstream:
->
-> - **Login and account interfaces removed**: Z.ai / BigModel OAuth login, browser authorization and deep link callbacks, Coding Plan API Key exchange, account credential refresh, and the account-state derivation built on them. The app holds no login state and exposes no login entry point.
-> - **Account-derived official features removed**: off-peak tasks, plan subscription and quota panel, plan identity badges, official Server MCP credentials, telemetry identity and marketing attribution, and remote workspace credential delivery.
-
-- **Official help, feedback, and sharing entry points removed**: the help menu keeps only Resource Manager, Check for Updates, and About; product docs / community / issue reporting / feature requests, conversation sharing (including the share deep link and the Web share landing page), and the built-in feedback center are gone, and no remote help config is fetched.
-  > - **Fully self-managed providers**: the built-in config only supplies `api-key` templates and generic model metadata; the user's personal provider config (default `~/.zcode/v2/provider_config.json`) is the single source of truth.
-  > - **Desktop update source decoupled**: the official manifest is no longer requested; updates read this repository's GitHub Releases and only notify with a link to the download page, never downloading or installing automatically.
-  >
-  > The display name (window titles, About, installer and Release names) is **ZCode-Lite**; identifiers such as the `zcode` command, the `@zcode/*` package scope, the deep link scheme, and the Linux package names stay aligned with upstream so the fork can keep following it. See [specs/build/product-identity.md](specs/build/product-identity.md), [specs/provider/account-free-providers.md](specs/provider/account-free-providers.md), [specs/help/client-help-surfaces.md](specs/help/client-help-surfaces.md), and [specs/update/desktop-auto-update-source.md](specs/update/desktop-auto-update-source.md) for the full rules.
-
 ZCode-Lite is an AI coding workspace with desktop, browser, and terminal interfaces. This repository contains the clients, backend services, shared UI, and Agent CLI and runtime source code.
+
+## Fork notice
+
+This repository is a fork of [zai-org/ZCode](https://github.com/zai-org/ZCode), renamed to **ZCode-Lite**. It keeps the ZCode coding workspace while dropping the dependency on Zhipu's (Z.ai / BigModel) account system, maintained as a lightweight, self-hostable branch.
+
+Main differences from upstream:
+
+- **Login and account interfaces removed**: Z.ai / BigModel OAuth login, browser authorization and deep link callbacks, Coding Plan API Key exchange, account credential refresh, and the account-state derivation built on them. The app holds no login state and exposes no login entry point.
+- **Account-derived official features removed**: off-peak tasks, plan subscription and quota panel, plan identity badges, official Server MCP credentials, telemetry identity and marketing attribution, and remote workspace credential delivery.
+- **Official help, feedback, and sharing entry points removed**: the help menu keeps only Resource Manager, Check for Updates, and About; product docs / community / issue reporting / feature requests, conversation sharing (including the share deep link and the Web share landing page), and the built-in feedback center are gone, and no remote help config is fetched.
+  - **Fully self-managed providers**: the built-in config only supplies `api-key` templates and generic model metadata; the user's personal provider config (default `~/.zcode/v2/provider_config.json`) is the single source of truth.
+  - **Desktop update source decoupled**: the official manifest is no longer requested; updates read this repository's GitHub Releases and only notify with a link to the download page, never downloading or installing automatically.
+
+The display name (window titles, About, installer and Release names) is **ZCode-Lite**; identifiers such as the `zcode` command, the `@zcode/*` package scope, the deep link scheme, and the Linux package names stay aligned with upstream so the fork can keep following it. See [specs/build/product-identity.md](specs/build/product-identity.md), [specs/provider/account-free-providers.md](specs/provider/account-free-providers.md), [specs/help/client-help-surfaces.md](specs/help/client-help-surfaces.md), and [specs/update/desktop-auto-update-source.md](specs/update/desktop-auto-update-source.md) for the full rules.
+
+## Interfaces
 
 | Interface                         | Purpose                                                                                   | Development command            |
 | --------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------ |
@@ -72,6 +73,12 @@ Set `ZCODE_DATA_BASE_DIR` to use a separate development data directory. For exam
 ```bash
 ZCODE_DATA_BASE_DIR="$HOME/.zcode-dev-home" pnpm dev:desktop:test
 ```
+
+### Remote features (SSH/WSL)
+
+Run `pnpm bootstrap:with-remote` to prepare the remote assets (mock-cdn) first, then `pnpm dev:desktop`; when connecting to a remote project, choose "Download locally then upload" for the assets. In development, assets come from the local `packages/desktop/mock-cdn` and local build outputs, are uploaded to the remote host over SFTP, and never come from a CDN.
+
+If no SSH host is at hand, the Dockerfile in [harness/remote](harness/remote/) starts a test container locally.
 
 ### Web Development
 
@@ -143,7 +150,7 @@ Runtime variables can be set explicitly in the environment of the startup comman
 
 ## Packaging
 
-See [third-party/README.md](third-party/README.md) for notice generation, distribution checks, and where the notices are included in each distribution.
+Third-party notices and license materials: `node scripts/licenses.mjs notices` regenerates [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); versions and sources are recorded in `third-party/inventory.json`, and `node scripts/licenses.mjs check --strict` is the pre-release gate.
 
 ### Desktop
 
@@ -157,6 +164,12 @@ pnpm bundle:desktop -- --help
 ```
 
 The default target is macOS arm64, and the default output directory is `packages/desktop/dist/`. `--os` accepts `mac`, `win`, or `linux`; `--arch` accepts `x64` or `arm64`. Packaging and signing require the tools and configuration for the target platform.
+
+Installation: open the DMG and drag ZCode-Lite into "Applications". Local builds are unsigned; if macOS blocks the first launch, run:
+
+```bash
+sudo xattr -rd com.apple.quarantine /Applications/ZCode-Lite.app
+```
 
 ### ZCode-Lite CLI distribution
 
@@ -206,18 +219,33 @@ Open `http://127.0.0.1:3030` to validate the complete flow, with one backend ser
 
 ## Repository Structure
 
-| Directory                                            | Responsibility                                                                          |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `packages/desktop`                                   | Electron Main, Host, Renderer, and desktop packaging                                    |
-| `packages/web`                                       | Web client                                                                              |
-| `packages/server`                                    | HTTP / WebSocket services and remote connections                                        |
-| `packages/zcode-server-cli`                          | Standalone server startup and process management                                        |
-| `packages/ui`                                        | Shared React components, hooks, and Zustand state                                       |
-| `packages/services`                                  | Business services and persistence                                                       |
-| `packages/shared`, `packages/rpc`, `packages/client` | Shared protocols and types, RPC framework, and Agent client SDK                         |
-| `packages/provider`, `packages/provider-node`        | Common provider capabilities and Node implementations                                   |
-| `apps/zcode-cli`                                     | Agent CLI, TUI, runtime, and tools                                                      |
-| `scripts`, `config`, `third-party`                   | Build and maintenance scripts, built-in configuration, and third-party notice materials |
+| Directory                                            | Responsibility                                                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `packages/desktop`                                   | Electron Main, Host, Renderer, and desktop packaging                                                  |
+| `packages/web`                                       | Web client                                                                                            |
+| `packages/server`                                    | HTTP / WebSocket services and remote connections                                                      |
+| `packages/zcode-server-cli`                          | Standalone server startup and process management                                                      |
+| `packages/ui`                                        | Shared React components, hooks, and Zustand state                                                     |
+| `packages/services`                                  | Business services and persistence                                                                     |
+| `packages/shared`, `packages/rpc`, `packages/client` | Shared protocols and types, RPC framework, and Agent client SDK                                       |
+| `packages/provider`, `packages/provider-node`        | Common provider capabilities and Node implementations                                                 |
+| `packages/model-option-map`                          | Parsing, compilation, and merging of model option maps (restricted CEL expressions)                   |
+| `packages/zcode-cua`                                 | API-compatible placeholder for Computer Use; this build ships without the capability and fails closed |
+| `packages/formal-proof`                              | Product behavior state-space enumerator for conversation states such as compact, fork, and queue      |
+| `apps/zcode-cli`                                     | Agent CLI, TUI, runtime, and tools                                                                    |
+| `specs`                                              | Feature specs and acceptance scenarios; update the matching document before changing behavior         |
+| `scripts`, `config`, `third-party`                   | Build and maintenance scripts, built-in configuration, and third-party notice materials               |
+| `harness`, `patches`, `public`                       | Remote debug container, dependency patches, and shared assets such as icons                           |
+
+## Related Documentation
+
+| Document                                         | Content                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| [AGENTS.md](AGENTS.md)                           | Repository conventions: commands, implementation and verification rules, boundaries |
+| [DESIGN.md](DESIGN.md)                           | UI design guidelines; read before changing UI                                       |
+| [CONTEXT.md](CONTEXT.md)                         | Plugin store domain vocabulary; read before changing related UI                     |
+| [specs/](specs/)                                 | Feature specs, interfaces, and acceptance scenarios                                 |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | Versions, sources, copyright, and license texts of third-party components           |
 
 ## Project Notice
 

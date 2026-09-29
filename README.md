@@ -7,22 +7,23 @@
   简体中文 | <a href="README.en.md">English</a>
 </p>
 
-> ### Fork 说明
->
-> 本仓库 fork 自 [zai-org/ZCode](https://github.com/zai-org/ZCode)，重命名为 **ZCode-Lite**。目标是在保留 ZCode 编程工作台能力的前提下，去掉对智谱（Z.ai / BigModel）官方账号体系的依赖，作为轻量、可自部署的分支维护。
->
-> 相对上游的主要差异：
->
-> - **移除登录与账号接口**：Z.ai / BigModel OAuth 登录、浏览器授权与 deep link 回调、Coding Plan API Key 换取、账号凭据刷新，以及由此派生的账号态判定。应用不再持有或刷新登录态，界面不再有登录入口。
-> - **移除登录派生的官方功能**：闲时（错峰）任务、套餐订阅与额度面板、套餐身份徽标、官方 Server MCP 凭据、遥测身份与营销归因、远程工作区凭据下发。
-
-- **移除官方帮助、反馈与分享入口**：帮助菜单只保留资源管理器、检查更新与关于；产品文档 / 用户社群 / 问题上报 / 给产品提需求、会话分享（含分享深链与 Web 分享落地页）与内置反馈中心整体下线，不再请求远端帮助配置。
-  > - **供应商完全自管**：内置配置只提供 `api-key` 模板与通用模型元数据，用户个人 provider 配置（默认 `~/.zcode/v2/provider_config.json`）是唯一事实来源。
-  > - **桌面端更新源解绑**：不再请求官方 manifest，改为读取本仓库的 GitHub Release，只提示并跳转到下载页，不自动下载安装。
-  >
-  > 展示名（窗口标题、关于、安装包名、Release 名）为 **ZCode-Lite**；`zcode` 命令、`@zcode/*` 包作用域、deep link scheme 与 Linux 包名等标识符与上游保持一致，便于持续跟随上游更新。完整规则见 [specs/build/product-identity.md](specs/build/product-identity.md)、[specs/provider/account-free-providers.md](specs/provider/account-free-providers.md)、[specs/help/client-help-surfaces.md](specs/help/client-help-surfaces.md) 与 [specs/update/desktop-auto-update-source.md](specs/update/desktop-auto-update-source.md)。
-
 ZCode-Lite 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent。本仓库包含客户端、后端服务、共享 UI，以及 Agent CLI 与运行时源码。
+
+## Fork 说明
+
+本仓库 fork 自 [zai-org/ZCode](https://github.com/zai-org/ZCode)，重命名为 **ZCode-Lite**。目标是在保留 ZCode 编程工作台能力的前提下，去掉对智谱（Z.ai / BigModel）官方账号体系的依赖，作为轻量、可自部署的分支维护。
+
+相对上游的主要差异：
+
+- **移除登录与账号接口**：Z.ai / BigModel OAuth 登录、浏览器授权与 deep link 回调、Coding Plan API Key 换取、账号凭据刷新，以及由此派生的账号态判定。应用不再持有或刷新登录态，界面不再有登录入口。
+- **移除登录派生的官方功能**：闲时（错峰）任务、套餐订阅与额度面板、套餐身份徽标、官方 Server MCP 凭据、遥测身份与营销归因、远程工作区凭据下发。
+- **移除官方帮助、反馈与分享入口**：帮助菜单只保留资源管理器、检查更新与关于；产品文档 / 用户社群 / 问题上报 / 给产品提需求、会话分享（含分享深链与 Web 分享落地页）与内置反馈中心整体下线，不再请求远端帮助配置。
+  - **供应商完全自管**：内置配置只提供 `api-key` 模板与通用模型元数据，用户个人 provider 配置（默认 `~/.zcode/v2/provider_config.json`）是唯一事实来源。
+  - **桌面端更新源解绑**：不再请求官方 manifest，改为读取本仓库的 GitHub Release，只提示并跳转到下载页，不自动下载安装。
+
+展示名（窗口标题、关于、安装包名、Release 名）为 **ZCode-Lite**；`zcode` 命令、`@zcode/*` 包作用域、deep link scheme 与 Linux 包名等标识符与上游保持一致，便于持续跟随上游更新。完整规则见 [specs/build/product-identity.md](specs/build/product-identity.md)、[specs/provider/account-free-providers.md](specs/provider/account-free-providers.md)、[specs/help/client-help-surfaces.md](specs/help/client-help-surfaces.md) 与 [specs/update/desktop-auto-update-source.md](specs/update/desktop-auto-update-source.md)。
+
+## 入口
 
 | 入口                      | 用途                                                           | 开发命令                       |
 | ------------------------- | -------------------------------------------------------------- | ------------------------------ |
@@ -77,6 +78,8 @@ ZCODE_DATA_BASE_DIR="$HOME/.zcode-dev-home" pnpm dev:desktop:test
 
 先执行 `pnpm bootstrap:with-remote` 准备远程资源（mock-cdn），再 `pnpm dev:desktop`；连接远程项目时资源选择「本地下载后上传」。开发态资源取自本地 `packages/desktop/mock-cdn` 和本地构建产物，经 SFTP 上传到远程，不访问 CDN。
 
+手边没有现成的 SSH 主机时，可用 [harness/remote](harness/remote/) 里的 Dockerfile 在本机起一个测试容器。
+
 ### Web 开发
 
 修改 Web 或后端源码时，使用开发模式：
@@ -90,7 +93,7 @@ ZCODE_SERVER_WORKSPACE=/path/to/project pnpm dev:web
 
 该命令同时启动 Web 开发服务器（默认 `http://localhost:5173`）和后端（默认 `http://localhost:3030`）；浏览器访问前者。`/ws` 和一般 `/api` 请求代理到本地后端，`/api/v1/oauth/token` 单独代理到当前配置的产品服务。
 
-Agent 源码修改后，执行 `pnpm --filter @zcode/cli... build` 并重启服务。需要验证完整发行包时，按下方“ZCode-Lite 命令行版”打包章节解压运行。
+Agent 源码修改后，执行 `pnpm --filter @zcode/cli... build` 并重启服务。需要验证完整发行包时，按下方「ZCode-Lite 命令行版」打包章节解压运行。
 
 ### ZCode-Lite 命令行版
 
@@ -147,7 +150,7 @@ node apps/zcode-cli/packages/cli/dist/zcode.cjs --help
 
 ## 打包
 
-第三方声明生成、发行校验流程及声明在发行物中的位置见 [third-party/README.md](third-party/README.md)。
+第三方声明与许可材料：`node scripts/licenses.mjs notices` 会重新生成 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)，版本与来源记录在 `third-party/inventory.json`；发布前的门禁是 `node scripts/licenses.mjs check --strict`。
 
 ### 桌面版
 
@@ -162,7 +165,7 @@ pnpm bundle:desktop -- --help
 
 默认目标为 macOS arm64，默认输出目录为 `packages/desktop/dist/`。`--os` 支持 `mac`、`win`、`linux`，`--arch` 支持 `x64`、`arm64`；实际打包与签名需要目标平台对应的工具和配置。
 
-安装：双击打开产物 DMG，将 ZCode-Lite 拖入"应用程序"。本地构建未签名，首次打开若被 macOS 拦截，执行：
+安装：双击打开产物 DMG，将 ZCode-Lite 拖入「应用程序」。本地构建未签名，首次打开若被 macOS 拦截，执行：
 
 ```bash
 sudo xattr -rd com.apple.quarantine /Applications/ZCode-Lite.app
@@ -216,18 +219,33 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 
 ## 仓库结构
 
-| 目录                                                 | 职责                                       |
-| ---------------------------------------------------- | ------------------------------------------ |
-| `packages/desktop`                                   | Electron Main、Host、Renderer 与桌面打包   |
-| `packages/web`                                       | Web 客户端                                 |
-| `packages/server`                                    | HTTP / WebSocket 服务与远程连接            |
-| `packages/zcode-server-cli`                          | 独立 Server 启动与进程管理                 |
-| `packages/ui`                                        | 共享 React 组件、hooks 与 Zustand 状态     |
-| `packages/services`                                  | 业务服务与持久化                           |
-| `packages/shared`、`packages/rpc`、`packages/client` | 共享协议和类型、RPC 框架、Agent 客户端 SDK |
-| `packages/provider`、`packages/provider-node`        | Provider 公共能力与 Node 实现              |
-| `apps/zcode-cli`                                     | Agent CLI、TUI、运行时与工具               |
-| `scripts`、`config`、`third-party`                   | 构建维护脚本、内置配置与第三方声明材料     |
+| 目录                                                 | 职责                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------- |
+| `packages/desktop`                                   | Electron Main、Host、Renderer 与桌面打包                            |
+| `packages/web`                                       | Web 客户端                                                          |
+| `packages/server`                                    | HTTP / WebSocket 服务与远程连接                                     |
+| `packages/zcode-server-cli`                          | 独立 Server 启动与进程管理                                          |
+| `packages/ui`                                        | 共享 React 组件、hooks 与 Zustand 状态                              |
+| `packages/services`                                  | 业务服务与持久化                                                    |
+| `packages/shared`、`packages/rpc`、`packages/client` | 共享协议和类型、RPC 框架、Agent 客户端 SDK                          |
+| `packages/provider`、`packages/provider-node`        | Provider 公共能力与 Node 实现                                       |
+| `packages/model-option-map`                          | 模型选项映射（受限 CEL 表达式）的解析、编译与合并                   |
+| `packages/zcode-cua`                                 | Computer Use 的兼容占位包；本发行不含该能力，相关接口一律返回不可用 |
+| `packages/formal-proof`                              | 产品行为状态空间枚举器，枚举对话（compact、fork、队列等）状态组合   |
+| `apps/zcode-cli`                                     | Agent CLI、TUI、运行时与工具                                        |
+| `specs`                                              | 功能规格与验收场景；改动行为前先更新对应文档                        |
+| `scripts`、`config`、`third-party`                   | 构建维护脚本、内置配置与第三方声明材料                              |
+| `harness`、`patches`、`public`                       | 远程调试容器、依赖补丁与图标等公共资源                              |
+
+## 相关文档
+
+| 文档                                             | 内容                                           |
+| ------------------------------------------------ | ---------------------------------------------- |
+| [AGENTS.md](AGENTS.md)                           | 仓库约定：命令、实现与验证要求、平台与协议边界 |
+| [DESIGN.md](DESIGN.md)                           | UI 设计规范；修改 UI 前阅读                    |
+| [CONTEXT.md](CONTEXT.md)                         | 插件商店领域词汇；修改相关 UI 前阅读           |
+| [specs/](specs/)                                 | 各功能的规格、接口与验收场景                   |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | 第三方组件的版本、来源、版权与许可原文         |
 
 ## 项目声明
 
