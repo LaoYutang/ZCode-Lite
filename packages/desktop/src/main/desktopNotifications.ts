@@ -2,6 +2,7 @@ import { app, BrowserWindow, Notification } from "electron";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import type { TaskNotificationPayload } from "@zcode/shared";
 import { formatZodError, PlatformChannels, taskNotificationPayloadSchema } from "@zcode/shared";
+import { wakeWindowsWindowVisibility } from "./desktopWindowVisibilityWake.js";
 
 const TASK_NOTIFICATION_DEDUPE_WINDOW_MS = 3000;
 const MAX_ACTIVE_TASK_NOTIFICATIONS = 100;
@@ -61,13 +62,24 @@ function releaseTaskNotification(notification: Notification) {
 }
 
 function focusTaskNotificationWindow(senderWindow: BrowserWindow) {
-  if (senderWindow.isMinimized()) {
+  // 唤起动作按进入时的状态三选一，必须用动作前的快照判断：
+  // restore()/show() 之后窗口已经变成“可见且非最小化”，再读状态会误判成需要补可见性切换的那一类。
+  const wasMinimized = senderWindow.isMinimized();
+  const wasVisible = senderWindow.isVisible();
+
+  if (wasMinimized) {
     senderWindow.restore();
   }
 
-  if (!senderWindow.isVisible()) {
+  if (!wasVisible) {
     senderWindow.show();
   }
+
+  wakeWindowsWindowVisibility(senderWindow, {
+    platform: process.platform,
+    wasMinimized,
+    wasVisible,
+  });
 
   // macOS 点通知时如果窗口曾被隐藏/最小化，必须先恢复窗口，再激活 app，
   // 最后聚焦 BrowserWindow；否则 app.focus 抢到前台时没有可显示窗口，后续 focus 可能被系统忽略。
