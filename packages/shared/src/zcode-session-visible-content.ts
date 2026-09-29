@@ -61,7 +61,11 @@ export function isZCodeModelOnlySyntheticUserMessage(message: ZCodeMessageWithPa
     return true;
   }
   const policy = getConversationMessageProjectionPolicy(message);
-  return policy === "providerContextOnly" || policy === "hiddenSynthetic";
+  return (
+    policy === "providerContextOnly" ||
+    policy === "inheritedHistoryOnly" ||
+    policy === "hiddenSynthetic"
+  );
 }
 
 export function isZCodeCompactSummaryMessage(message: ZCodeMessageWithParts): boolean {

@@ -2,6 +2,7 @@ export type ConversationMessageProjectionPolicy =
   | "realUserInput"
   | "visibleAssistant"
   | "providerContextOnly"
+  | "inheritedHistoryOnly"
   | "timelineOnly"
   | "hiddenSynthetic";
 
@@ -75,12 +76,36 @@ const MODEL_ONLY_TURN_TRIGGER_SOURCES = new Set([
   "target_continuation",
 ]);
 
+/**
+ * fork 复制来的、被 UI 双隐藏的继承历史载体。
+ *
+ * 必须同时要求 `metadata.forkOrigin`（只有 fork 会写这个来源标记）与 UI 双隐藏：普通会话的
+ * model-only 载体（todo reminder、后台通知、goal 状态）没有 forkOrigin，legacy / stable fork
+ * 复制来的历史则不改可见性、仍要照常渲染，两类都不能收进这个判据。
+ */
+function isInheritedHiddenHistory(info: ConversationProjectionMessage["info"]): boolean {
+  if (metadataRecord(info.metadata)?.forkOrigin === undefined) return false;
+  const semantics = info.semantics;
+  return (
+    info.visibility === MODEL_ONLY_VISIBILITY &&
+    semantics?.uiVisibility === "hidden" &&
+    semantics?.transcriptVisibility === "hidden"
+  );
+}
+
 export function getConversationMessageProjectionPolicy(
   message: ConversationProjectionMessage,
 ): ConversationMessageProjectionPolicy {
   const info = message.info;
   const parts = message.parts ?? [];
   const semantics = info.semantics;
+
+  // fork 继承历史（selection side chat）：fork 把复制来的父会话消息改写成 model-only + UI 双隐藏，
+  // 它们只喂模型。这类消息不得产出任何 UI 行——压缩分隔线、goal 校验线、模型切换线、后台结果标题
+  // 都是从载体消息的 part / 轮次事实派生的，只隐藏消息本身挡不住它们（specs/selection-side-chat 第五节）。
+  if (isInheritedHiddenHistory(info)) {
+    return "inheritedHistoryOnly";
+  }
 
   if (semantics?.kind === "compact_summary" || info.summary !== undefined) {
     return "providerContextOnly";
@@ -195,6 +220,12 @@ export function isConversationHiddenSyntheticMessage(
   message: ConversationProjectionMessage,
 ): boolean {
   return getConversationMessageProjectionPolicy(message) === "hiddenSynthetic";
+}
+
+export function isConversationInheritedHistoryMessage(
+  message: ConversationProjectionMessage,
+): boolean {
+  return getConversationMessageProjectionPolicy(message) === "inheritedHistoryOnly";
 }
 
 function isTimelineOnlyMessage(

@@ -33,6 +33,7 @@ import {
 import {
   getConversationModelOnlyTurnTriggerSource,
   getConversationMessageProjectionPolicy,
+  isConversationInheritedHistoryMessage,
   isConversationRealUserTurnStarter,
 } from "@zcode/shared";
 import {
@@ -130,6 +131,22 @@ function isProviderContextOnlyAssistant(message: MessageWithParts): boolean {
     message.info.role === "assistant" &&
     getConversationMessageProjectionPolicy(message) === "providerContextOnly"
   );
+}
+
+/**
+ * 该消息不得进入 UI 投影，整条跳过。
+ *
+ * `inheritedHistoryOnly` 是副屏复制来的父会话历史（`metadata.forkOrigin` + UI 双隐藏），
+ * 与角色无关：user 载体若放过，会走 model-only 唤醒分支，投影追加带 `originMeta` 的
+ * turnHeader，副屏就渲染出父会话的后台任务标题；assistant 载体放过则合成压缩分隔线、
+ * goal 校验线与模型切换线（specs/selection-side-chat 第五节）。
+ *
+ * `providerContextOnly` 只跳过 assistant 宿主，沿用既有边界：user 载体要留给主循环的唤醒
+ * 分支（后台结果标题行）与 guide steer 内联分支，跳过它会静默丢掉普通会话的后台结果轮。
+ */
+function isUiHiddenContextMessage(message: MessageWithParts): boolean {
+  if (isConversationInheritedHistoryMessage(message)) return true;
+  return isProviderContextOnlyAssistant(message);
 }
 
 function textOfMessage(parts: readonly MessagePart[]): string {
@@ -1376,10 +1393,11 @@ function collectTurnOutput(options: {
   let turnEndedAtMs = options.turnStartedAtMs;
   while (index < messages.length && !isTurnBoundaryStarter(messages[index]!)) {
     const message = messages[index]!;
-    if (isProviderContextOnlyAssistant(message)) {
+    if (isUiHiddenContextMessage(message)) {
       // selection side chat 会把继承的 assistant 历史标成 model-only，
       // 旧 cold hydration 却只隐藏 user carrier，随后把 assistant 当作 preface/上一轮输出合成，
       // 导致副屏首次打开和冷恢复都泄漏父时间线。统一服从 projection policy，整条跳过。
+      // 继承历史的压缩载体（timeline_event 宿主）同样在此跳过：否则副屏出现「上下文已压缩」。
       index += 1;
       continue;
     }
@@ -1694,7 +1712,9 @@ export function synthesizeEventsFromMessages(
 
   while (index < messages.length) {
     const message = messages[index]!;
-    if (isProviderContextOnlyAssistant(message)) {
+    if (isUiHiddenContextMessage(message)) {
+      // 继承历史（副屏）整条跳过：压缩载体的 part 会合成「上下文已压缩」分隔线，
+      // 后台唤醒载体则会让投影追加带 originMeta 的 turnHeader 行（父会话任务标题）。
       index += 1;
       continue;
     }
